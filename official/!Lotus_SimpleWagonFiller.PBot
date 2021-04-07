@@ -1,0 +1,216 @@
+//init
+const ui = Java.type('haven.purus.pbot.PBotAPI').ui();
+const hcConfig = Java.type('haven.Config');
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const PBotWindowAPI = Java.type('haven.purus.pbot.PBotWindowAPI');
+const PBotCharacterAPI = Java.type('haven.purus.pbot.PBotCharacterAPI');
+
+const VERSIONNAME = "1.0"
+const WINDOWNAME = "WagonFillerSimple";
+const HOWTO = "HOWTO:\n  1. Stand next to cart\n  2. press start \n 3. select area with logs \n";
+const TICK = 500;
+const RADIUS = 200;
+//const PEDALOPTION = "";
+
+const messageLevel = 4;
+var stopmsg = [];
+var start = Date.now();
+
+////////////////
+windowWidth = 120;
+windowHeight = 150;
+const window = PBotUtils.PBotWindow(ui, WINDOWNAME, windowWidth, windowHeight, ScriptID);
+//First Screen
+const btnStart = window.addButton("btnStartClick", "Start", 80, 25, 10);
+const howtoBtn = window.addButton("howtoBtnClick", "?", 25, 104, 10);
+const devider = window.addLabel("_____________", 25, 25);
+const rangeLbl = window.addLabel("Range: ", 35, 65);
+const textEntry = window.addTextEntry(35, RADIUS.toString(), 85, 63);
+btnStart.changeColor(30, 200, 45);
+//Second Screen (After user presses start)
+
+
+const btnStartClick = () => {
+	btnStart.hide();
+	howtoBtn.hide();
+  rangeLbl.hide();
+	textEntry.hide();
+	main()
+	btnStart.show();
+	howtoBtn.show();
+	rangeLbl.show();
+	textEntry.show();
+	info("Bot Done!", 0);
+}
+const howtoBtnClick = () => {
+	info(WINDOWNAME + " " + VERSIONNAME + " " + HOWTO, 0)
+}
+///////////////
+const main = () => {
+
+	var aLogs = [];
+	PBotUtils.selectArea(ui);
+	let allGobs = PBotUtils.gobsInArea(ui, PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB());
+	for (let g of allGobs) {
+		if (isLog(g))
+			aLogs.push(g);
+	}
+	let workorder = aLogs;
+	workorder = workorder.sort(
+		(a, b) =>
+			PBotGobAPI.player(ui).getRcCoords().dist(a.getRcCoords()) - PBotGobAPI.player(ui).getRcCoords().dist(b.getRcCoords())
+	);
+
+  let vehicle = PBotGobAPI.findGobByNames(ui, RADIUS, "gfx/terobjs/vehicle/wagon");
+  if(vehicle == null) {
+    info("No vehicle found", 1);
+    return;
+  } else if (workorder == null) {
+		info("No logs found", 1);
+		return;
+	} else {
+		info("vehicle found : " + vehicle.getResname(), 2);
+		info("amount of trees found : " + workorder.length, 2);
+	}
+
+
+	let processed = 0; 	//Walks to all the stockpiles
+	workorder.forEach((gob) => {
+		let workOrderStartTime = Date.now();
+		info("workOrderStartTime " + workOrderStartTime, 2);
+		if(!window.closed() && !irq()){
+			info("Current workorder " + gob.getResname(), 2);
+			const maxWaitTicks = 3;
+			let idleCounter = maxWaitTicks;
+			var stutterStepTimes = 0;
+		  while (idleCounter >= 0 && !irq() && PBotGobAPI.findGobById(ui, gob.gob.id) != null){
+				let timelapsed = ((Date.now()-workOrderStartTime)/1000).toFixed(1);
+				if (!PBotGobAPI.player(ui).isMoving()){idleCounter--;}
+				else {idleCounter = maxWaitTicks;}
+				if (!isSlow() && !PBotGobAPI.player(ui).isMoving()){
+					info("Clicking Gob : " + gob.getResname(), 2);
+					PBotCharacterAPI.doAct(ui, "carry");
+					gob.doClick(1, 0);
+					PBotCharacterAPI.cancelAct(ui);
+					PBotUtils.sleep(TICK);
+				} else if (isSlow() && !PBotGobAPI.player(ui).isMoving()) {
+					info("Vehicle Distance : " + distanceToGob(vehicle), 2);
+					vehicle.doClick(3, 0);
+					PBotUtils.sleep(TICK);
+				}
+				PBotUtils.sleep(TICK);
+
+				if (timelapsed >= 0 && timelapsed < 3 ) {
+					PBotUtils.sysMsg(ui, timelapsed + "  Seconds Lapsed", 80, 130, 120);
+				} else
+				if (timelapsed >= 3 && timelapsed < 5) {
+					PBotUtils.sysMsg(ui, timelapsed + "  Seconds Lapsed", 200, 160, 20);
+				} else
+				if (timelapsed >= 5 && timelapsed < 10) {
+					PBotUtils.sysMsg(ui, timelapsed + "  Seconds Lapsed", 255, 40, 10);
+				} else
+				if (timelapsed >= 10) { // 2seconds for the bot to stutterstep, if this fails it will continue whatever it's stuck on
+					PBotUtils.sysMsg(ui, timelapsed + "  Seconds Lapsed", 200, 50, 20);
+					if (stutterStepTimes < 1){
+						stutterStep();
+						stutterStepTimes++;
+					}
+				}
+				if (timelapsed >= 20) {
+					PBotUtils.sysMsg(ui, "Crash, sorry about that!", 255, 40, 10);
+					err("Took to long to finnish the bot");
+				}
+			}
+		}
+	processed++;
+
+});
+
+}
+/////////////////////////
+function stutterStep(){
+	PBotUtils.sysMsg(ui, "Stutterstep", 200, 50, 20);
+	PBotGobAPI.player(ui).doClick(1, 0);
+	PBotUtils.sleep(TICK*3);
+}
+function isLog(a) {
+	let res = false;
+	try {
+		let gobName = a.getResname();
+		res = gobName.startsWith("gfx/terobjs/trees/") && gobName.endsWith("log");
+	} catch (e) {}
+	return res;
+}
+function isVehicle(a) {
+	let res = false;
+	try {
+		let gobName = a.getResname();
+		res = gobName.startsWith("gfx/terobjs/vehicle/");
+	} catch (e) {}
+	return res;
+}
+function isSlow(){
+	if(PBotCharacterAPI.getMaxSpeed(ui) == 0){
+		return true;
+	} else return false;
+}
+function distanceToGob(gob){
+	const gobPos = gob.getRcCoords().floor();
+	const playerPos = PBotGobAPI.player(ui).getRcCoords().floor();
+	const distanceX = gobPos.x - playerPos.x;
+	const distanceY = gobPos.y - playerPos.y;
+	const total =  pythagorean(distanceX, distanceY);
+  info ("distance: " + total);
+	return total;
+}
+function pythagorean(sideA, sideB){
+  return Math.sqrt(Math.pow(sideA, 2) + Math.pow(sideB, 2));
+}
+function waitForIdle() {
+	const tick = 50;
+	const maxWaitTicks = 10;
+	let idleCounter = maxWaitTicks;
+  while (idleCounter >= 0 && !irq()) {
+    if (
+			(PBotUtils.getHourglass(ui) == -1)
+			||
+			(PBotUtils.getHourglass(ui) >= 0.8)
+      &&
+      (!PBotGobAPI.player(ui).isMoving())
+		)
+			idleCounter--;
+		else idleCounter = maxWaitTicks;
+		PBotUtils.sleep(tick);
+    info("Idle : " + idleCounter, 5);
+	}
+}
+function irq() {
+	if (PBotCharacterAPI.getStamina(ui) < 35) {
+		err("Out of stamina");
+	}
+	if (PBotCharacterAPI.getEnergy(ui) < 35) {
+		err("Out of energy");
+	}
+	if (PBotWindowAPI.getWindow(ui, WINDOWNAME) == null) {
+		info("Stopped", 0);
+		return true;
+	}
+	if (stopmsg.length == 0) {
+		return false;
+	} else {
+		let errstr = "⚠ ";
+		for (let r of stopmsg) {
+			errstr += r + " ⚠ ";
+		}
+		PBotUtils.sysMsg(ui, errstr, 255, 128, 0);
+		return true;
+	}
+}
+function err(s) {
+	stopmsg.push(s);
+}
+function info(s, l) {
+	if (l <= messageLevel)
+		PBotUtils.sysMsg(ui, s + "", 128, 192, 200);
+}

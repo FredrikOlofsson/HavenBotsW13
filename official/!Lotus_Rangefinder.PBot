@@ -1,0 +1,96 @@
+//init
+const ui = Java.type('haven.purus.pbot.PBotAPI').ui();
+const hcConfig = Java.type('haven.Config');
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const PBotWindowAPI = Java.type('haven.purus.pbot.PBotWindowAPI');
+const PBotCharacterAPI = Java.type('haven.purus.pbot.PBotCharacterAPI');
+
+const VERSIONNAME = "1.0"
+const WINDOWNAME = "RangeFinder";
+const HOWTO = "HOWTO:\n  1. Alt+Click Object\n  2. Press start \n";
+const TICK = 500;
+
+const messageLevel = 5;
+var stopmsg = [];
+
+////////////////
+const radius = 200;
+windowWidth = 40;
+windowHeight = 150;
+const window = PBotUtils.PBotWindow(ui, WINDOWNAME, windowWidth, windowHeight, ScriptID);
+const btnStart = window.addButton("btnStartClick", "Start", 80, 24, 0);
+const howtoBtn = window.addButton("howtoBtnClick", "?", 24, 104, 0);
+const statusLbl = window.addLabel(" ", 10, 10);
+btnStart.changeColor(30, 200, 45);
+statusLbl.hide();
+
+const btnStartClick = () => {
+	btnStart.hide();
+	howtoBtn.hide();
+  statusLbl.show();
+	main()
+	btnStart.show();
+	howtoBtn.show();
+	statusLbl.hide();
+	info("Bot Done!", 0);
+}
+const howtoBtnClick = () => {
+	info(WINDOWNAME + " " + VERSIONNAME + " " + HOWTO, 0)
+}
+///////////////
+const main = () => {
+	PBotUtils.sysMsg(ui, "Please alt+click something to measure the distance to it!");
+	const selectedGob = PBotGobAPI.selectGob(ui);
+	if(selectedGob == null) {
+		PBotUtils.sysMsg("No object selected", 128, 192, 200);
+		return;
+	}
+	while(!window.closed() && !irq()){
+			tiles = distanceToGob(selectedGob) / 11;
+			statusLbl.setText("Tiles : " + tiles.toFixed(1) + "  (raw:" + Math.round(distanceToGob(selectedGob)) + ")");
+			PBotUtils.sleep(TICK);
+		}
+}
+/////////////////////////
+function distanceToGob(gob){
+	const gobPos = gob.getRcCoords().floor();
+	const playerPos = PBotGobAPI.player(ui).getRcCoords().floor();
+	const distanceX = gobPos.x - playerPos.x;
+	const distanceY = gobPos.y - playerPos.y;
+	const total =  pythagorean(distanceX, distanceY);
+  info ("distance: " + total);
+	return total;
+}
+function pythagorean(sideA, sideB){
+  return Math.sqrt(Math.pow(sideA, 2) + Math.pow(sideB, 2));
+}
+function irq() {
+	if (PBotCharacterAPI.getStamina(ui) < 35) {
+		err("Out of stamina");
+	}
+	if (PBotCharacterAPI.getEnergy(ui) < 35) {
+		err("Out of energy");
+	}
+	if (PBotWindowAPI.getWindow(ui, WINDOWNAME) == null) {
+		info("Stopped", 0);
+		return true;
+	}
+	if (stopmsg.length == 0) {
+		return false;
+	} else {
+		let errstr = "⚠ ";
+		for (let r of stopmsg) {
+			errstr += r + " ⚠ ";
+		}
+		PBotUtils.sysMsg(ui, errstr, 255, 128, 0);
+		return true;
+	}
+}
+function err(s) {
+	stopmsg.push(s);
+}
+function info(s, l) {
+	if (l <= messageLevel)
+		PBotUtils.sysMsg(ui, s + "", 128, 192, 200);
+}

@@ -1,0 +1,48 @@
+const PBotAPI = Java.type('haven.purus.pbot.PBotAPI');
+const ui = PBotAPI.ui();
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotCharacterAPI = Java.type('haven.purus.pbot.PBotCharacterAPI');
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const window = PBotUtils.PBotWindow(ui, "Destroyer", 70, 200, ScriptID);
+window.addLabel("Drinks and destroys", 10, 10);
+const btn = window.addButton("btnClick", "Start", 180, 10, 30);
+
+let stop = false;
+
+const btnClick = () => {
+    btn.hide();
+	PBotUtils.selectArea(ui);
+    let gobs = PBotUtils.gobsInArea(ui, PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB());
+    for (let gob of gobs) {
+        if (shouldStop()) break;
+        if (gob == PBotUtils.player(ui)) continue;
+        destroy(gob);
+    }
+	PBotUtils.sysMsg(ui, "Gob destroyed succesfully!");
+	btn.show();
+};
+
+function shouldStop() {
+	if (PBotCharacterAPI.getEnergy(ui) <= 22) PBotUtils.sysMsg(ui, "Not enough energy!");
+	if (stop) PBotUtils.sysMsg(ui, "Stop!");
+	if (window.closed()) PBotUtils.sysMsg(ui, "Windows closed!");
+	return stop || window.closed() || PBotCharacterAPI.getEnergy(ui) <= 22;
+};
+
+function destroy(gob) {
+    while (PBotGobAPI.findGobById(ui, gob.gob.id) != null && !shouldStop()) {
+        if (PBotUtils.isMoving(ui) || PBotUtils.getHourglass(ui) != -1) {
+            PBotUtils.sleep(1000);
+        } else {
+            if (PBotCharacterAPI.getStamina(ui) < 80) {
+                PBotUtils.drink(ui, true);
+            }
+            PBotUtils.pfmovegob(ui, gob);
+            PBotCharacterAPI.doAct(ui, "destroy");
+            gob.doClick(1, 0);
+            PBotCharacterAPI.cancelAct(ui);
+            PBotUtils.sleep(1000);
+        }
+    }
+};
+

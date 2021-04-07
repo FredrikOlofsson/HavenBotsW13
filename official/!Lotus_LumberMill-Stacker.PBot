@@ -1,0 +1,201 @@
+//init
+const ui = Java.type('haven.purus.pbot.PBotAPI').ui();
+const hcConfig = Java.type('haven.Config');
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const PBotWindowAPI = Java.type('haven.purus.pbot.PBotWindowAPI');
+const PBotCharacterAPI = Java.type('haven.purus.pbot.PBotCharacterAPI');
+
+const VERSIONNAME = "0.1"
+const WINDOWNAME = "LumberStacker";
+const HOWTO = "HOWTO:\n  1. Fill inventory with some planks \n 2. Select area max 2 tile wide \n";
+const TICK = 50;
+const ITEM = "Boards";
+const STOCKPILEMARGIN = 16.5;
+
+
+const messageLevel = 5;
+var stopmsg = [];
+var start = Date.now();
+
+////////////////
+windowWidth = 140;
+windowHeight = 30;
+const window = PBotUtils.PBotWindow(ui, WINDOWNAME, windowHeight, windowWidth, ScriptID);
+const btnStart = window.addButton("btnStartClick", "Start", 80, 24, 0);
+const howtoBtn = window.addButton("howtoBtnClick", "?", 24, 104, 0);
+const statusLbl = window.addLabel(HOWTO, 10, 10);
+const progressLbl = window.addLabel("", 10, 25);
+const timeLbl = window.addLabel(" ", 10, 40);
+const estLbl = window.addLabel(" ", 10, 60);
+const activityLbl = window.addLabel(" ", 10, 85);
+statusLbl.hide();
+progressLbl.hide();
+estLbl.hide();
+timeLbl.hide();
+activityLbl.hide();
+const btnStartClick = () => {
+	btnStart.hide();
+	howtoBtn.hide();
+	start = Date.now();
+	main()
+	statusLbl.hide();
+	progressLbl.hide();
+	estLbl.hide();
+	timeLbl.hide();
+  activityLbl.hide();
+	btnStart.show();
+	howtoBtn.show();
+	info("Done", 0);
+}
+const howtoBtnClick = () => {
+	info(WINDOWNAME + " " + VERSIONNAME + " " + HOWTO, 0)
+}
+///////////////
+const main = () => {
+	statusLbl.show();
+	progressLbl.show();
+	estLbl.show();
+	timeLbl.show();
+	activityLbl.show();
+
+	//Let user select area for stockpiles
+	statusLbl.setText("Stockpile Area:");
+	info("Please select area for the stockpiles, 2 wide", 1);
+	PBotUtils.selectArea(ui);
+	const aPnt = PBotUtils.getSelectedAreaA();
+	const bPnt = PBotUtils.getSelectedAreaB();
+	if(Math.abs(aPnt.x-bPnt.x) > STOCKPILEMARGIN && Math.abs(aPnt.y-bPnt.y) > STOCKPILEMARGIN) {
+		PBotUtils.sysMsg(ui, "Selected area did not meet the constraints given!");
+		return;
+	}
+
+	//Calculate the area needed
+	statusLbl.setText("Calculating the amount of stockpiles that fits in the area");
+	info("Calculating the amount of stockpiles that fits in the area", 1);
+	let stockpileLocs = [];
+	for(let i=Math.min(aPnt.x, bPnt.x)+STOCKPILEMARGIN/2; i<Math.max(aPnt.x, bPnt.x); i += STOCKPILEMARGIN) {
+		for(let j=Math.min(aPnt.y, bPnt.y)+STOCKPILEMARGIN/2; j<Math.max(aPnt.y, bPnt.y); j += STOCKPILEMARGIN) {
+			stockpileLocs.push({x: i, y: j});
+		}
+	}
+	sinfo("Stockpile size " + stockpileLocs.length, 2);
+
+
+	//Search inventory for planks
+	statusLbl.setText("Searching inventory for planks");
+	info("Searching inventory for planks", 1);
+	var aPlanks = [];
+	let allGobsInv = PBotUtils.playerInventory(ui).getInventoryContents();
+	for (let p of allGobsInv) {
+		if (isPlank(p))
+			aPlanks.push(p);
+	}
+	sinfo("Found " + allGobsInv.length + " items in inventory" , 2);
+	sinfo("Found " + aPlanks.length + " " + ITEM, 2);
+	sinfo("First board:" + aPlanks[0].getResname(), 2);
+
+
+	//Make stockpiles out for the boards in the inventory
+	statusLbl.setText("Making stockpiles");
+	while(stockpileLocs.length > 0 && aPlanks.length > 0) {
+		const location = stockpileLocs.shift();
+		const plank = aPlanks.shift();
+		plank.takeItem(true);
+		while(PBotUtils.getItemAtHand(ui) == null)
+			PBotUtils.sleep(TICK);
+		console.log(PBotUtils.getItemAtHand(ui));
+		PBotGobAPI.makePile(ui);
+		while(PBotUtils.getItemAtHand(ui) != null)
+			PBotUtils.sleep(TICK);
+		if(!PBotUtils.pfLeftClick(ui, location.x+STOCKPILEMARGIN, location.y) && !PBotUtils.pfLeftClick(ui, location.x-STOCKPILEMARGIN, location.y) && !PBotUtils.pfLeftClick(ui, location.x, location.y+STOCKPILEMARGIN) && !PBotUtils.pfLeftClick(ui, location.x, location.y-STOCKPILEMARGIN)) { // Couldn't find path next to the stockpile that we want to make next
+			aPlanks.push(plank);
+			PBotUtils.sysMsg(ui, "QAQ");
+			sinfo("QAQ!", 2);
+			continue;
+		}
+		PBotGobAPI.placeThing(ui, location.x, location.y);
+		PBotGobAPI.waitForGob(ui, location.x, location.y);
+	}
+	statusLbl.setText("Done!");
+	info("Done!", 1);
+
+}
+///////////////////
+javaListToArray = (javalist) => {
+	const ret = [];
+	for(let i=0; i<javalist.size(); i++)
+		ret.push(javalist.get(i));
+	return ret;
+};
+function isPlank(a) {
+	let res = false;
+	try {
+		let gobName = a.getResname();
+		res = gobName.startsWith("gfx/invobjs/board");
+	} catch(e) {}
+	return res;
+}
+function updatetime(){
+  activityLbl.setText("updating time, please wait ");
+  info("updating time, please wait .. ");
+	let seconds = (Date.now()-start)/1000;
+	let minutes = Math.floor((seconds)/60);
+	seconds = Math.floor(seconds%60);
+	timeLbl.setText(minutes + " min " + seconds + " sec ");
+  if (messageLevel > 4) PBotUtils.sleep(3*TICK);
+}
+function waitForIdle() {
+  activityLbl.setText("Wait for idle ..");
+  info("Wait for idle", 4);
+	const tick = 100;
+	const maxWaitTicks = 5;
+	let idleCounter = maxWaitTicks;
+  while (idleCounter >= 0 && !irq()) {
+    if (
+			(PBotUtils.getHourglass(ui) == -1)
+			||
+			(PBotUtils.getHourglass(ui) >= 0.8)
+      &&
+      (!PBotGobAPI.player(ui).isMoving())
+		)
+			idleCounter--;
+		else idleCounter = maxWaitTicks;
+		PBotUtils.sleep(tick);
+    info("Idle", 4);
+		updatetime();
+	}
+}
+function info(s, l) {
+	if (l <= messageLevel)
+		PBotUtils.sysMsg(ui, s + "", 128, 192, 200);
+}
+function sinfo(s, l) {
+	if (l <= messageLevel)
+		PBotUtils.sysMsg(ui, s + "", 50, 200, 60);
+}
+function irq() {
+	if (PBotCharacterAPI.getStamina(ui) < 35) {
+		err("Out of stamina");
+	}
+	if (PBotCharacterAPI.getEnergy(ui) < 35) {
+		err("Out of energy");
+	}
+	if (PBotWindowAPI.getWindow(ui, WINDOWNAME) == null) {
+		info("Stopped", 0);
+		return true;
+	}
+	if (stopmsg.length == 0) {
+		return false;
+	} else {
+		let errstr = "⚠ ";
+		for (let r of stopmsg) {
+			errstr += r + " ⚠ ";
+		}
+		PBotUtils.sysMsg(ui, errstr, 255, 128, 0);
+		return true;
+	}
+}
+function err(s) {
+	stopmsg.push(s);
+}

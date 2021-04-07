@@ -1,0 +1,141 @@
+// A farming bot, made by Purus Cor to demonstrate the usage and capabilities of the Purus Pasta PBot Botting API
+// For more information about the API, join Purus Pasta discord server!
+// To suggest features into API, suggest them in discord
+// Area is selected, and bot replants all harvestable crops in that area
+
+const PBotUtils = Java.type("haven.purus.pbot.PBotUtils");
+const PBotCharacterAPI = Java.type("haven.purus.pbot.PBotCharacterAPI");
+const PBotGobAPI = Java.type("haven.purus.pbot.PBotGobAPI");
+const PBotWindowAPI = Java.type("haven.purus.pbot.PBotWindowAPI");
+const window = PBotUtils.PBotWindow("Area Farmer", 80, 200, ScriptID);
+const startBtn = window.addButton("startFarmingBtn", "Start farming", 100, 50, 25);
+const tick = 100;
+let stop = false;
+
+const crops = new Map([
+	["gfx/terobjs/plants/carrot", {seedname: "gfx/invobjs/carrot", stages: [4]}],
+	["gfx/terobjs/plants/flax", {seedname: "gfx/invobjs/seed-flax", stages: [3], gProduct: "gfx/terobjs/items/flaxfibre", iProduct: "gfx/invobjs/items/flaxfibre"}],
+	["gfx/terobjs/plants/yellowonion", {seedname: "gfx/invobjs/yellowonion", stages: [3]}],
+	["gfx/terobjs/plants/redonion", {seedname: "gfx/invobjs/redonion", stages: [3]}],
+	["gfx/terobjs/plants/beet", {seedname: "gfx/invobjs/beet", stages: [3]}],
+	["gfx/terobjs/plants/turnip", {seedname: "gfx/invobjs/turnip", stages: [3]}],
+	["gfx/terobjs/plants/leek", {seedname: "gfx/invobjs/leek", stages: [4]}],
+	["gfx/terobjs/plants/barley", {seedname: "gfx/invobjs/seed-barley", stages: [3]}],
+	["gfx/terobjs/plants/wheat", {seedname: "gfx/invobjs/seed-wheat", stages: [3]}],
+	["gfx/terobjs/plants/millet", {seedname: "gfx/invobjs/seed-millet", stages: [3]}],
+	["gfx/terobjs/plants/poppy", {seedname: "gfx/invobjs/seed-poppy", stages: [4]}],
+	["gfx/terobjs/plants/pipeweed", {seedname: "gfx/invobjs/seed-pipeweed", stages: [4]}],
+	["gfx/terobjs/plants/lettuce", {seedname: "gfx/invobjs/seed-lettuce", stages: [4]}],
+	["gfx/terobjs/plants/hemp", {seedname: "gfx/invobjs/seed-hemp", stages: [3,4]}]
+]);
+
+shouldStop = () => {
+	return (stop || window.closed());
+};
+
+javaListToArray = (javalist) => {
+	const ret = [];
+	for(let i=0; i<javalist.size(); i++)
+		ret.push(javalist.get(i));
+	return ret;
+};
+
+startFarmingBtn = () => {
+	startBtn.destroy();
+	PBotUtils.sysMsg("Please select an area by dragging!");
+	PBotUtils.sysMsg("To abort, close the window");
+	PBotUtils.selectArea();
+
+	const statusLbl = window.addLabel("Initializing...", 25, 5);
+	const progressLbl = window.addLabel("", 25, 30);
+	const estLbl = window.addLabel("Estimated remaining time:", 25, 45);
+	const timeLbl = window.addLabel("", 25, 60);
+
+	let gobs = javaListToArray(PBotUtils.gobsInArea(PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB()));
+	gobs = gobs.filter((gob) => {
+		return (crops.has(gob.getResname()) && crops.get(gob.getResname()).stages.includes(gob.getCropStage()))
+	});
+	PBotUtils.sysMsg("Starting to replant total of " + gobs.length + " crops!");
+	const start = Date.now();
+	let processed = 0;
+	//Harvesting, Planting
+	gobs.forEach((gob) => {
+		progressLbl.setText("Progress: " + Math.round(processed/gobs.length*100) + "%");
+		let seconds = ((Date.now()-start)/processed*(gobs.length-processed))/1000;
+		const minutes = Math.floor((seconds)/60);
+		seconds = Math.floor(seconds%60);
+		timeLbl.setText(minutes + " minutes " + seconds + " seconds ");
+		processed++;
+		if(shouldStop()) return;
+		const seedname = crops.get(gob.getResname()).seedname;
+		const resname = gob.getResname();
+		// Check if stamina is under 60% - Drink if it is
+		statusLbl.setText("Checking stamina");
+		if(PBotCharacterAPI.getStamina() < 60) {
+			statusLbl.setText("Drinking");
+			if(!PBotUtils.drink(true)) {
+				PBotUtils.sysMsg("Ran out of water!");
+				stop = true;
+				return;
+			}
+		}
+		// Drop anything in hand
+
+		// Right click the crop with pathfinder
+		statusLbl.setText("Moving to crop");
+		PBotUtils.pfRightClick(gob, 0);
+		if(shouldStop()) return;
+		// Harvest from flowermenu
+		statusLbl.setText("Waiting for menu");
+		PBotUtils.waitForFlowerMenu();
+		if(shouldStop()) return;
+		statusLbl.setText("Harvesting");
+		PBotUtils.choosePetal("Harvest");
+		if(shouldStop()) return;
+		// Wait for gob to disappear
+		while(PBotGobAPI.findGobById(gob.getGobId()) != null) {
+			if(shouldStop()) return;
+			PBotUtils.sleep(15);
+		}
+		// Wait for seeds to appear in inventory
+		statusLbl.setText("Waiting for seeds");
+		let seeds;
+		do {
+			seeds = javaListToArray(PBotUtils.playerInventory().getInventoryItemsByResnames([seedname]));
+			if(shouldStop()) return;
+		} while(seeds.length === 0);
+		// Take a seed into hand
+		statusLbl.setText("Taking seed into hand");
+		let itemInvCoords = seeds[0].getInvLoc();
+		seeds[0].takeItem(true);
+		if(shouldStop()) return;
+		// Plant the seed
+		statusLbl.setText("Planting the seed");
+		PBotUtils.mapInteractClick();
+		// Wait for crop to appear below us
+		while(PBotGobAPI.findGobByNames(1, [resname]) == null) {
+			PBotUtils.sleep(tick);
+			if(shouldStop()) return;
+		}
+		//Place seed back into inventory
+		PBotUtils.playerInventory().dropItemToInventory(itemInvCoords);
+		while(PBotUtils.playerInventory().getItemFromInventoryAtLocation(itemInvCoords.x, itemInvCoords.y) == null) {
+			PBotUtils.sleep(tick);
+		}
+		// Drop seed(s) from hand and inventory
+		if(PBotUtils.playerInventory().freeSlotsInv() < 1){
+			statusLbl.setText("Dropping excess seeds");
+			for(let i=1; i<seeds.length; i++)
+				seeds[i].dropItemFromInventory();
+		}
+	});
+
+
+	//ENDING
+	let seconds = (Date.now()-start)/1000;
+	const minutes = Math.floor((seconds)/60);
+	seconds = Math.floor(seconds%60);
+	console.log((Date.now()-start)/1000);
+	PBotUtils.sysMsg("Farming finished! Time elapsed: " + minutes +  " minutes " + seconds + " seconds");
+	window.closeWindow();
+};
