@@ -1,0 +1,106 @@
+// Pick leaves from mulberries and put them in the selected stockpiles
+// Made by Purus Cor to demonstrate usage of PBot API
+// For more information about API, join Purus Pasta discord
+// To suggest features into API, suggest them in discord
+const ui = Java.type('haven.purus.pbot.PBotAPI').ui();
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotWindowAPI = Java.type('haven.purus.pbot.PBotWindowAPI');
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const window = PBotUtils.PBotWindow(ui, "Leaf Ripper", 30, 60, ScriptID);
+const start = window.addButton("btnClick", "Start", 50, 5, 5);
+let stop = false;
+
+shouldStop = () => {
+	return stop || window.closed();
+}
+
+javaListToArray = (javalist) => {
+	const ret = [];
+	for(let i=0; i<javalist.size(); i++)
+		ret.push(javalist.get(i));
+	return ret;
+};
+
+const btnClick = () => {
+    start.hide();
+    main();
+    start.show();
+}
+
+main = () => {
+	PBotUtils.sysMsg(ui, "Select area with mulberry trees");
+	PBotUtils.selectArea(ui);
+	let mulberries = javaListToArray(PBotUtils.gobsInArea(ui, PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB()));
+	mulberries = mulberries.filter((gob) => {
+		return(gob.getResname() === "gfx/terobjs/trees/mulberry")
+	});
+
+	PBotUtils.sysMsg(ui, "Select area with leaf stockpiles");
+	PBotUtils.selectArea(ui);
+	let piles = javaListToArray(PBotUtils.gobsInArea(ui, PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB()));
+	piles = piles.filter((gob) => {
+		return(gob.getResname() === "gfx/terobjs/stockpile-leaf")
+	});
+	console.log(mulberries);
+	console.log(piles);
+	let tree = mulberries.shift();
+	while(tree != null && !shouldStop()) {
+		tree.pfClick(1, 0);
+		tree.doClick(3, 0);
+		PBotUtils.waitForFlowerMenu(ui);
+		if(!PBotUtils.choosePetal(ui, "Pick leaf")) { // No leaves remaining
+			PBotUtils.closeFlowermenu(ui);
+			tree = mulberries.shift();
+			continue;
+		}
+		// PBotUtils.waitForHourglass(ui); // We may or may not have leave in our hand after this, maybe it doesn't matter
+		waitForIdle();
+		let leaves = PBotUtils.playerInventory(ui).getInventoryItemsByResnames(["gfx/invobjs/leaf-mulberrytree"]).size();
+		while(leaves > 0) {
+			if(piles.length === 0) {
+				stop = true;
+				break;
+			}
+			if(piles[0].stockpileIsFull()) {
+				piles.shift();
+				continue;
+			}
+			PBotUtils.pfRightClick(ui, piles[0], 0);
+			if(PBotUtils.getItemAtHand(ui) != null) {
+				piles[0].itemClick(0);
+				while(PBotUtils.getItemAtHand(ui) != null)
+					PBotUtils.sleep(25);
+				piles[0].doClick(3, 0);
+			}
+			PBotWindowAPI.waitForWindow(ui, "Stockpile");
+			const free = PBotWindowAPI.getStockpileTotalCapacity(ui)-PBotWindowAPI.getStockpileUsedCapacity(ui);
+			if(free === 0) {
+				piles.shift();
+				continue;
+			}
+			const count = Math.min(leaves, free);
+			if(count === free)
+				piles.shift();
+			leaves -= count;
+			PBotWindowAPI.putItemFromInventoryToStockpile(ui, count);
+			while(PBotUtils.playerInventory(ui).getInventoryItemsByResnames(["gfx/invobjs/leaf-mulberrytree"]).size() != leaves) {
+				PBotUtils.sleep(25);
+			}
+		}
+	}
+	PBotUtils.sysMsg(ui, "Done!");
+}
+
+function waitForIdle() {
+  const maxWaitTICKs = 4;
+  const TICK = 200;
+  let idleCounter = maxWaitTICKs;
+  while (idleCounter >= 0) {
+    if (PBotUtils.getHourglass(ui) == -1)
+      idleCounter--;
+    else {
+      idleCounter = maxWaitTICKs;
+    }
+    PBotUtils.sleep(TICK);
+  }
+}

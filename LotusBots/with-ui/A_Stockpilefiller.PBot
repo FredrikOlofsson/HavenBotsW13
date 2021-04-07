@@ -1,0 +1,233 @@
+const ui = Java.type('haven.purus.pbot.PBotAPI').ui();
+const PBotUtils = Java.type('haven.purus.pbot.PBotUtils');
+const PBotAPI = Java.type('haven.purus.pbot.PBotAPI');
+const PBotCharacterAPI = Java.type("haven.purus.pbot.PBotCharacterAPI");
+const PBotGobAPI = Java.type('haven.purus.pbot.PBotGobAPI');
+const PBotWindowAPI = Java.type('haven.purus.pbot.PBotWindowAPI');
+const VERSIONNAME = "1.0"
+const WINDOWNAME = "A_StockpileFiller";
+const HOWTO = "HOWTO:\n  1. Mark Area with Items To Pick Up \n  2. press start \n";
+const TICK = 500;
+var RADIUS = 30;
+var RESERVEDINVSPACE = 4;
+//const PEDALOPTION = "";
+
+const messageLevel = 4;
+var stopmsg = [];
+var start = Date.now();
+
+////////////////
+windowWidth = 120;
+windowHeight = 150;
+const window = PBotUtils.PBotWindow(ui, WINDOWNAME, windowWidth, windowHeight, ScriptID);
+//First Screen
+const btnStart = window.addButton("btnStartClick", "Start", 80, 25, 10);
+const howtoBtn = window.addButton("howtoBtnClick", "?", 25, 104, 10);
+const devider = window.addLabel("_____________", 25, 25);
+const rangeLbl = window.addLabel("Range: ", 35, 65);
+const textEntryRangeLbl = window.addTextEntry(35, RADIUS.toString(), 85, 63);
+btnStart.changeColor(30, 200, 45);
+//Second Screen (After user presses start)
+const statusLbl = window.addLabel("Drag Select Area", 10, 10);
+const progressLbl = window.addLabel("1 / X", 10, 25);
+const timeLbl = window.addLabel("active time: X min Y seconds", 10, 40);
+const estLbl = window.addLabel("remaining time x min Y seconds", 10, 60);
+const devider2 = window.addLabel("_____________", 25, 65);
+const activityLbl = window.addLabel("Idle, Walking, progress", 10, 85);
+statusLbl.hide();
+progressLbl.hide();
+timeLbl.hide();
+estLbl.hide();
+devider2.hide();
+activityLbl.hide();
+const btnStartClick = () => {
+	//1nd window
+	btnStart.hide();
+	howtoBtn.hide();
+	devider.hide();
+  rangeLbl.hide();
+	textEntryRangeLbl.hide();
+	//2nd window
+	statusLbl.show();
+	progressLbl.show();
+	timeLbl.show();
+	estLbl.hide(); //not needed until one progress is made
+	devider2.show();
+	activityLbl.show();
+	main()
+	//1nd window
+	btnStart.show();
+	howtoBtn.show();
+	devider.show();
+	rangeLbl.show();
+	textEntryRangeLbl.show();
+	////2nd window
+	statusLbl.hide();
+	progressLbl.hide();
+	timeLbl.hide();
+	estLbl.hide();
+	devider2.hide();
+	activityLbl.hide();
+	info("Bot Done!", 0);
+}
+const howtoBtnClick = () => {
+	info(WINDOWNAME + " " + VERSIONNAME + " " + HOWTO, 0)
+}
+const main = () => {
+	itemStored = 0;
+	var letLastPickup;
+	updatetime();
+	timeLbl.show();
+	info("Select area with stockpiles", 0)
+	statusLbl.setText("Select area with stockpiles!");
+	var itemStored = 0;
+	var aGroundItems = [];
+	var aStockpiles = [];
+	PBotUtils.selectArea(ui);
+	let allGobs = PBotUtils.gobsInArea(ui, PBotUtils.getSelectedAreaA(), PBotUtils.getSelectedAreaB());
+	for (let g of allGobs) {
+		if (isStockpile(g)){
+			aStockpiles.push(g);
+		} else if (isStockpileItem(g)){
+			aGroundItems.push(g);
+		}
+	}
+	aGroundItems = aGroundItems.sort(
+		(a, b) =>
+			PBotGobAPI.player(ui).getRcCoords().dist(a.getRcCoords()) - PBotGobAPI.player(ui).getRcCoords().dist(b.getRcCoords())
+	);
+	aStockpiles = aStockpiles.sort(
+		(a, b) =>
+			PBotGobAPI.player(ui).getRcCoords().dist(a.getRcCoords()) - PBotGobAPI.player(ui).getRcCoords().dist(b.getRcCoords())
+	);
+
+
+
+	do {
+		statusLbl.setText("Collecting!");
+		let processed = 0; 	//used to calculate time of completion based on workorder
+		let beforePicking = aGroundItems.length;
+		if (PBotUtils.playerInventory(ui).freeSlotsInv() <= RESERVEDINVSPACE) info("Reserved inventry space reached  (" + RESERVEDINVSPACE + ")", 1);
+		while (!irq() && aGroundItems.length > 0 && PBotUtils.playerInventory(ui).freeSlotsInv() > RESERVEDINVSPACE){
+			let seconds = ((Date.now()-start)/processed*(beforePicking.length-processed))/1000;
+			seconds = Math.floor(seconds%60);
+			pick(aGroundItems[0]);
+
+			aGroundItems.shift();
+			processed++;
+			progressLbl.setText("Progress: " + Math.round((processed/beforePicking)*100) + "%");
+			estLbl.setText( seconds + " sec ");
+			progressLbl.show();
+			estLbl.show();
+		}
+		statusLbl.setText("Collecting Done!");
+		statusLbl.setText("Storing!");
+		let playerInventory = PBotUtils.playerInventory(ui).getInventoryContents();
+		if (playerInventory.length > 0) lastItemInvName = playerInventory[playerInventory.length-1].getName();
+		if(aStockpiles.length > 0 && (playerInventory.length > 0) && lastItemInvName != null) {
+			PBotUtils.sysMsg(ui, "lastItemInvName : " + lastItemInvName);
+			statusLbl.setText("Stockpiles : " + aStockpiles.length);
+			PBotUtils.pfRightClick(ui, aStockpiles[0], 0);
+			PBotWindowAPI.waitForWindow(ui, "Stockpile");
+
+			if (PBotWindowAPI.getWindow(ui, "Stockpile") ){
+
+
+				itemInvAmount = PBotUtils.playerInventory(ui).getInventoryItemsByNames(lastItemInvName).size();
+				const slots = PBotWindowAPI.getStockpileTotalCapacity(ui);
+				const used = PBotWindowAPI.getStockpileUsedCapacity(ui);
+				const count = Math.min(itemInvAmount, slots-used);
+				PBotWindowAPI.putItemFromInventoryToStockpile(ui, count);
+				PBotUtils.sysMsg(ui, "itemInvAmount " + itemInvAmount);
+				PBotUtils.sysMsg(ui, "Tried to add: " + count + " Into a stockpile containing: " + used + "/" + slots);
+				PBotUtils.sleep(200);
+				stutterStep();
+				itemStored += count;
+				itemInvAmount -= count;
+				statusLbl.setText("Stored items so far : " + itemStored);
+				info("Items Stored thus far : " + itemStored);
+				if(count + used === slots){
+					PBotUtils.sysMsg(ui, "Stockpile Full, starting with a new one ..");
+					aStockpiles.shift();
+				}
+			} else {
+				PBotUtils.sysMsg(ui, "Could not find stockpile window!");
+			}
+		} else {
+		info(ui, "Ran out of free stockpiles!");
+		err("Ran out of free stockpiles!");
+		}
+		info("Repeating Loop if possible ..", 0);
+	} while (!irq() && !window.closed());
+}
+////////////////////////////////////////////////
+function stutterStep(){
+	PBotUtils.sysMsg(ui, "Stutterstep", 200, 50, 20);
+	PBotGobAPI.player(ui).doClick(1, 0);
+	PBotUtils.sleep(TICK*3);
+}
+function pick(gob){
+	let workOrderStartTime = Date.now();
+	let timelapsed = ((Date.now()-workOrderStartTime)/1000).toFixed(1);
+	while (timelapsed < 3 && !irq() && PBotGobAPI.findGobById(ui, gob.gob.id) != null) {
+		if ((!PBotGobAPI.player(ui).isMoving()) && PBotGobAPI.findGobById(ui, gob.gob.id) != null) {
+			gob.doClick(3,1);
+			PBotUtils.sleep(50);
+		}
+			timelapsed = ((Date.now()-workOrderStartTime)/1000).toFixed(1);
+			activityLbl.setText("worktime : " + timelapsed);
+			PBotUtils.sleep(50);
+	}
+}
+function isStockpileItem(a) {
+	let res = false;
+	try {
+		let gobName = a.getResname();
+		res = gobName.startsWith("gfx/terobjs/items/");
+	} catch (e) {}
+	return res;
+}
+function isStockpile(a) {
+	let res = false;
+	try {
+		let gobName = a.getResname();
+		res = gobName.startsWith("gfx/terobjs/stockpile");
+	} catch (e) {}
+	return res;
+}
+function irq() {
+	if (PBotCharacterAPI.getStamina(ui) < 35) {
+		err("Out of stamina");
+	}
+	if (PBotCharacterAPI.getEnergy(ui) < 35) {
+		err("Out of energy");
+	}
+	if (PBotWindowAPI.getWindow(ui, WINDOWNAME) == null) {
+		info("Stopped", 0);
+		return true;
+	}
+	if (stopmsg.length == 0) {
+		return false;
+	} else {
+		let errstr = "⚠ ";
+		for (let r of stopmsg) {
+			errstr += r + " ⚠ ";
+		}
+		PBotUtils.sysMsg(ui, errstr, 255, 128, 0);
+		return true;
+	}
+}
+function err(s) {
+	stopmsg.push(s);
+}
+function info(s, l) {
+	if (l <= messageLevel)
+		PBotUtils.sysMsg(ui, s + "", 128, 192, 200);
+}
+function updatetime(){
+  info("updating time, please wait .. ");
+	let seconds = (Date.now()-start)/1000;
+	let minutes = Math.floor((seconds)/60);
+	seconds = Math.floor(seconds%60);
+	timeLbl.setText(minutes + " min " + seconds + " sec ");
+}
